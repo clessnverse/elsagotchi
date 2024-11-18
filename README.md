@@ -1,2 +1,3 @@
-# graphagotchi
-Fonctions pour créer des graphiques facilement pour datagotchi
+# Graphagotchi
+
+Draw plots easily for datagotchi reports
