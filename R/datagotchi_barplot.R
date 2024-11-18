@@ -1,176 +1,130 @@
-#' Create a standardized Datagotchi bar plot
+#' Create a standardized bar plot for survey data
 #' 
-#' @param data A data frame containing the data to plot
-#' @param x Character. The x-axis variable name
-#' @param y Character. The y-axis variable name (if computing proportions, this will be the variable to compute proportions from)
-#' @param fill Character. The fill variable name
-#' @param y_title Character. Title for y-axis
-#' @param percents Logical. Whether to display values as percentages
-#' @param x_rename Named vector. Renaming values for x variable
-#' @param fill_rename Named vector. Renaming values for fill variable
-#' @param logo Logical. Whether to add the Datagotchi logo
-#' @param colorset Character. Name of the color set to use ("issues", "parties", "custom")
-#' @param n Logical. Whether to display sample size in caption
-#' @param caption Character. Caption text (will be appended with n if n=TRUE)
-#' @param theme Character. Name of the theme to use
-#' @param save_path Character. Path where to save the plot
-#' @param weight Character. Optional. Name of the weight variable for weighted calculations
+#' @param data A data frame containing the survey data
+#' @param x Character. The name of the column to use for x-axis categories
+#' @param y Character. The name of the column to use for y-axis values (defaults to count/frequency if NULL)
+#' @param fill Character. Optional. The name of the column to use for fill colors
+#' @param position Character. The position adjustment ("stack", "dodge", "fill"). Defaults to "dodge"
+#' @param coord_flip Logical. Whether to flip the coordinates. Defaults to FALSE
+#' @param sort Logical. Whether to sort the bars by value. Defaults to FALSE
+#' @param labels Logical. Whether to show value labels on bars. Defaults to TRUE
+#' @param label_size Numeric. Size of the bar labels. Defaults to 3
+#' @param title Character. Optional plot title
+#' @param subtitle Character. Optional plot subtitle
+#' @param xlab Character. Optional x-axis label
+#' @param ylab Character. Optional y-axis label 
+#'
+#' @return A ggplot object
 #' @export
+#'
+#' @importFrom ggplot2 ggplot aes geom_bar geom_col geom_text position_dodge position_stack position_fill coord_flip labs
+#' @importFrom dplyr count group_by summarise arrange
+#' @importFrom clessnize datagotchi_theme_light
+#'
 datagotchi_barplot <- function(data, 
-                              x,
-                              y,
-                              fill,
-                              y_title = "Proportion",
-                              percents = TRUE,
-                              x_rename = NULL,
-                              fill_rename = NULL,
-                              logo = TRUE,
-                              colorset = "issues",
-                              n = TRUE,
-                              caption = NULL,
-                              theme = "datagotchi_light",
-                              save_path = NULL,
-                              weight = NULL) {
+                              x, 
+                              y = NULL,
+                              fill = NULL,
+                              position = "dodge",
+                              coord_flip = FALSE,
+                              sort = FALSE,
+                              labels = TRUE,
+                              label_size = 3,
+                              title = NULL,
+                              subtitle = NULL,
+                              xlab = NULL,
+                              ylab = NULL) {
   
-  # Load required packages
-  require(dplyr)
-  require(ggplot2)
-  require(grid)
-  require(png)
-  
-  # Convert inputs to character
-  x_var <- deparse(substitute(x))
-  y_var <- deparse(substitute(y))
-  fill_var <- deparse(substitute(fill))
-  weight_var <- if(!is.null(weight)) deparse(substitute(weight)) else NULL
-  
-  # Define color sets
-  color_palettes <- list(
-    issues = c(
-      "Afro-Américain" = "#4B0082",
-      "Latino-Américain" = "#FF7F50",
-      "Caucasien" = "#B0C4DE"
-    ),
-    parties = c(
-      "Démocrate" = "#0000FF",
-      "Républicain" = "#FF0000",
-      "Indépendant" = "#808080"
-    )
-  )
-  
-  # Data preparation
-  prepared_data <- data %>%
-    # Remove NA values
-    filter(!is.na(!!sym(x_var)),
-           !is.na(!!sym(y_var)),
-           !is.na(!!sym(fill_var)))
-  
-  # Rename categories if specified
-  if(!is.null(x_rename)) {
-    prepared_data[[x_var]] <- factor(prepared_data[[x_var]], 
-                                   levels = names(x_rename),
-                                   labels = unname(x_rename))
+  # Input validation
+  if (!is.data.frame(data)) {
+    stop("'data' must be a data frame")
+  }
+  if (!x %in% names(data)) {
+    stop(sprintf("Column '%s' not found in data", x))
+  }
+  if (!is.null(y) && !y %in% names(data)) {
+    stop(sprintf("Column '%s' not found in data", y))
+  }
+  if (!is.null(fill) && !fill %in% names(data)) {
+    stop(sprintf("Column '%s' not found in data", fill))
+  }
+  if (!position %in% c("stack", "dodge", "fill")) {
+    stop("'position' must be one of: 'stack', 'dodge', 'fill'")
   }
   
-  if(!is.null(fill_rename)) {
-    prepared_data[[fill_var]] <- factor(prepared_data[[fill_var]], 
-                                      levels = names(fill_rename),
-                                      labels = unname(fill_rename))
-  }
-  
-  # Calculate proportions
-  if(percents) {
-    summarized_data <- prepared_data %>%
-      group_by(!!sym(x_var), !!sym(fill_var)) %>%
-      summarise(
-        proportion = if(!is.null(weight_var)) {
-          weighted.mean(!!sym(y_var), w = !!sym(weight_var), na.rm = TRUE)
-        } else {
-          mean(!!sym(y_var), na.rm = TRUE)
-        },
-        n = n(),
-        .groups = "drop"
-      )
+  # Prepare the data
+  if (is.null(y)) {
+    # If no y variable is specified, count frequencies
+    plot_data <- data %>%
+      count(.data[[x]], .data[[fill]]) %>%
+      setNames(c(x, fill, "n"))
+    y <- "n"
   } else {
-    summarized_data <- prepared_data
+    plot_data <- data
   }
   
-  # Calculate total n for caption if needed
-  if(n) {
-    total_n <- nrow(prepared_data)
-    if(!is.null(caption)) {
-      caption <- paste0(caption, "\n(n = ", total_n, ")")
+  # Sort data if requested
+  if (sort) {
+    plot_data <- plot_data %>%
+      group_by(.data[[x]]) %>%
+      summarise(total = sum(.data[[y]])) %>%
+      arrange(desc(total)) %>%
+      left_join(plot_data, by = x)
+  }
+  
+  # Create the base plot
+  p <- ggplot(plot_data)
+  
+  # Add the bars with appropriate aesthetics
+  if (is.null(fill)) {
+    p <- p + geom_col(aes(x = .data[[x]], 
+                         y = .data[[y]]),
+                     position = position)
+  } else {
+    p <- p + geom_col(aes(x = .data[[x]], 
+                         y = .data[[y]],
+                         fill = .data[[fill]]),
+                     position = position)
+  }
+  
+  # Add labels if requested
+  if (labels) {
+    if (position == "dodge") {
+      pos <- position_dodge(width = 0.9)
+    } else if (position == "stack") {
+      pos <- position_stack()
     } else {
-      caption <- paste0("(n = ", total_n, ")")
+      pos <- position_fill()
     }
+    
+    p <- p + geom_text(
+      aes(x = .data[[x]],
+          y = .data[[y]],
+          label = round(.data[[y]], 1),
+          group = if (!is.null(fill)) .data[[fill]] else NULL),
+      position = pos,
+      vjust = -0.5,
+      size = label_size
+    )
   }
   
-  # Create the plot
-  p <- ggplot(summarized_data, 
-              aes(x = !!sym(x_var), 
-                  y = if(percents) proportion else !!sym(y_var),
-                  fill = !!sym(fill_var))) +
-    geom_bar(stat = if(percents) "identity" else "count",
-             position = "dodge",
-             width = 0.55) +
-    geom_text(aes(label = if(percents) 
-                  scales::percent(proportion, accuracy = 1)
-                  else after_stat(count)), 
-              position = position_dodge(width = 0.55),
-              vjust = -0.5,
-              size = 15,
-              family = "PixelOperatorSC",
-              fontface = "bold") +
-    labs(x = "",
-         y = y_title,
-         caption = caption) +
-    scale_fill_manual(values = color_palettes[[colorset]]) +
-    if(percents) scale_y_continuous(labels = scales::percent) else scale_y_continuous() +
-    get(paste0("theme_", theme))() +
-    theme(
-      plot.title = element_text(size = 60),
-      axis.text = element_text(size = 40),
-      axis.text.x = element_text(size = 40),
-      axis.title = element_text(size = 45),
-      legend.text = element_text(size = 50),
-      legend.title = element_text(size = 55),
-      strip.background = element_rect(color = "black", fill = "black"),
-      plot.caption = element_text(
-        size = 35,
-        family = "PixelOperatorSC",
-        hjust = 0,
-        vjust = -3,
-        margin = margin(t = 30, b = 5, l = 5, r = 20),
-        lineheight = 0.3
-      ),
-      plot.margin = margin(t = 15, r = 40, b = 20, l = 20),
-      panel.border = element_rect(color = "black", fill = NA, size = 2)
+  # Apply the theme and optional modifications
+  p <- p + 
+    datagotchi_theme_light() +
+    labs(
+      title = title,
+      subtitle = subtitle,
+      x = xlab %||% x,
+      y = ylab %||% y
     )
   
-  # Save the plot if path is provided
-  if(!is.null(save_path)) {
-    # Save initial plot
-    ggsave(save_path, plot = p, width = 10, height = 8, dpi = 300)
-    
-    # Add logo if requested
-    if(logo) {
-      # Read the saved plot and logo
-      plot_img <- readPNG(save_path)
-      logo_img <- readPNG("path/to/logo.png") # You'll need to specify the actual logo path
-      
-      # Create new device
-      png(save_path, width = 1000, height = 800)
-      
-      # Draw plot and logo
-      grid.raster(plot_img)
-      grid.raster(logo_img, x = 0.92, y = 0.06, 
-                 width = unit(2, "inches"), 
-                 height = unit(1, "inches"))
-      
-      # Close device
-      dev.off()
-    }
+  # Flip coordinates if requested
+  if (coord_flip) {
+    p <- p + coord_flip()
   }
   
   return(p)
 }
+
+# Helper function for NULL coalescing
+`%||%` <- function(x, y) if (is.null(x)) y else x
