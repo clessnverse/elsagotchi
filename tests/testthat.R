@@ -1,5 +1,4 @@
-library(testthat)
-library(sondr)
+library(testthat) library(sondr)
 
 test_check("sondr")
 
