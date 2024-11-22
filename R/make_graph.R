@@ -84,116 +84,79 @@ make_graph <- function(data) {
     print(y_value_counts)
   }
   
-# Demander si l'utilisateur souhaite recoder ou regrouper les catégories
-recode_y <- get_yes_no("Do you want to recode or group categories of this variable? (Y/n): ")
-
-if (recode_y) {
-  # Afficher les valeurs uniques
-  unique_values <- unique(data[[y_var]])
+  # Demander si l'utilisateur souhaite créer une variable binaire basée sur des conditions
+  create_binary_var <- get_yes_no("Do you want to create a binary variable based on specific values of this variable? (Y/n): ")
   
-  # Convertir les valeurs uniques en caractères, en gérant les NA
-  unique_values_char <- sapply(unique_values, function(x) {
-    if (is.na(x)) {
-      "NA"
-    } else {
-      as.character(x)
-    }
-  })
-  
-  cat("\nUnique values in '", y_var, "':\n", paste(unique_values_char, collapse = ", "), "\n", sep = "")
-  
-  # Initialiser un mapping pour les nouvelles catégories
-  new_categories <- list()
-  cat("\nFor each category, enter the new category name (leave blank to keep the original name):\n")
-  for (i in seq_along(unique_values)) {
-    value <- unique_values[i]
-    value_char <- unique_values_char[i]
-    new_value <- readline(sprintf("New category for '%s': ", value_char))
-    if (new_value == "") {
-      new_value <- value_char
-    }
-    if (is.na(value)) {
-      new_categories[["NA"]] <- new_value
-    } else {
-      new_categories[[value_char]] <- new_value
+  if(create_binary_var) {
+    # Afficher les valeurs uniques de la variable y_var
+    unique_values <- unique(data[[y_var]])
+    cat("\nUnique values in '", y_var, "':\n", paste(unique_values, collapse = ", "), "\n", sep = "")
+    
+    # Demander les valeurs qui seront codées en 1
+    values_for_one <- readline("Enter the values that should be coded as 1, separated by commas: ")
+    values_for_one <- strsplit(values_for_one, ",")[[1]]
+    values_for_one <- trimws(values_for_one)
+    
+    # Créer la nouvelle variable binaire
+    new_y_var <- paste0(y_var, "_binary")
+    data[[new_y_var]] <- ifelse(data[[y_var]] %in% values_for_one, 1, 0)
+    
+    # Mettre à jour y_var pour utiliser la nouvelle variable binaire
+    y_var <- new_y_var
+    valid_vars <- names(data)
+    
+    # Afficher un message de confirmation
+    cat("\nNew binary variable '", y_var, "' has been created based on '", y_var, "'.\n", sep = "")
+    
+    # Demander si l'utilisateur veut voir les valeurs de la nouvelle variable
+    if(get_yes_no("Do you want to see the values of the new variable? (Y/n): ")) {
+      print(table(data[[y_var]], useNA = "ifany"))
     }
   }
   
-  # Créer une nouvelle variable avec les catégories regroupées
-  new_y_var <- readline("Enter a name for the new recoded variable: ")
+  # Demander à l'utilisateur de spécifier les variables de regroupement
+  cat("\nNow, specify the variables you want to group by.")
+  group_vars <- c()
   
-  # Fonction de mappage avec gestion des NA
-  data[[new_y_var]] <- vapply(data[[y_var]], function(x) {
-    if (is.na(x)) {
-      if ("NA" %in% names(new_categories)) {
-        new_categories[["NA"]]
-      } else {
-        NA_character_
-      }
+  repeat {
+    group_var <- get_variable_input("Enter a grouping variable (or 'none' to finish): ", valid_vars)
+    if(group_var == "none") {
+      break
     } else {
-      x_char <- as.character(x)
-      if (x_char %in% names(new_categories)) {
-        new_categories[[x_char]]
-      } else {
-        NA_character_
-      }
+      group_vars <- c(group_vars, group_var)
     }
-  }, FUN.VALUE = character(1))
-  
-  # Mettre à jour y_var pour utiliser la nouvelle variable
-  y_var <- new_y_var
-  valid_vars <- names(data)
-  
-  # Afficher les nouvelles catégories et leurs fréquences
-  if (get_yes_no("Do you want to see the new categories and counts? (Y/n): ")) {
-    y_value_counts <- data %>%
-      count(.data[[y_var]]) %>%
-      arrange(desc(n))
-    print(y_value_counts)
   }
-}
+  
+  if(length(group_vars) == 0) {
+    group_vars <- c(x_var)
+  }
   
   # Ask how to summarize the Y variable
   cat("\nHow do you want to summarize the variable on the Y axis?")
   cat("\nOptions:")
   cat("\n1. **Mean**: Calculate the average of the variable. Use this for numerical variables.")
   cat("\n2. **Sum**: Calculate the total sum of the variable. Useful for counting occurrences or totals.")
-  cat("\n3. **Proportion of specific values**: Calculate the percentage of specific categories within each group.")
-  cat("\n4. **Custom function**: Enter your own R function to summarize the variable (e.g., median, sd).")
-  summary_choice <- readline("\nEnter your choice (1/2/3/4): ")
+  cat("\n3. **Custom function**: Enter your own R function to summarize the variable (e.g., median, sd).")
+  summary_choice <- readline("\nEnter your choice (1/2/3): ")
   
   summary_function <- NULL
   if(summary_choice == "1") {
     summary_function <- "mean"
     cat("\nYou have chosen to calculate the **mean** of '", y_var, "'.\n", sep = "")
-    cat("This is appropriate if '", y_var, "' is a numerical variable.\n", sep = "")
   } else if(summary_choice == "2") {
     summary_function <- "sum"
     cat("\nYou have chosen to calculate the **sum** of '", y_var, "'.\n", sep = "")
-    cat("This can be used to count total occurrences or aggregate values.\n")
   } else if(summary_choice == "3") {
-    # Get specific values for which to calculate the proportion
-    unique_values <- unique(data[[y_var]])
-    cat("\nUnique values in '", y_var, "':\n", paste(unique_values, collapse = ", "), "\n", sep = "")
-    specific_values <- readline("Enter the values for which you want to calculate the proportion, separated by commas: ")
-    specific_values <- strsplit(specific_values, ",")[[1]]
-    specific_values <- trimws(specific_values)
-    
-    # Create a binary variable where specific values are coded as 1
-    data[[paste0(y_var, "_binary")]] <- ifelse(data[[y_var]] %in% specific_values, 1, 0)
-    y_var <- paste0(y_var, "_binary")
-    summary_function <- "mean"
-    cat("\nYou have chosen to calculate the **proportion** of '", paste(specific_values, collapse = ", "), "' in '", y_var, "'.\n", sep = "")
-  } else if(summary_choice == "4") {
     summary_function <- readline("Enter the R function to summarize (e.g., median, sd): ")
-    cat("\nYou have chosen to use the custom function '", summary_function, "' to summarize '", y_var, "'.\n", sep = "")
+    cat("\nYou have chosen to use the custom function '", summary_function, "'.\n", sep = "")
   } else {
     stop("Invalid choice for summary function.")
   }
   
-  # Confirm Y variable and summary function
+  # Confirm choices
   cat("\nSummary of your choices:")
   cat("\n- X variable:", x_var)
+  cat("\n- Grouping variables:", paste(group_vars, collapse = ", "))
   cat("\n- Y variable:", y_var)
   cat("\n- Summary function:", summary_function, "\n")
   
@@ -251,14 +214,30 @@ if (recode_y) {
   weight_var <- get_variable_input("Which variable should be used for weights? (or 'none'): ", valid_vars)
   if(weight_var == "none") weight_var <- NULL
   
+  # Préparer les données pour le graphique
+  summary_fun <- match.fun(summary_function)
+  
+  if (is.null(weight_var)) {
+    plot_data <- data %>%
+      group_by(across(all_of(group_vars))) %>%
+      summarise(y_value = summary_fun(.data[[y_var]], na.rm = TRUE), .groups = 'drop')
+  } else {
+    plot_data <- data %>%
+      group_by(across(all_of(group_vars))) %>%
+      summarise(y_value = summary_fun(.data[[y_var]] * .data[[weight_var]], na.rm = TRUE), .groups = 'drop')
+  }
+  
+  # Mettre à jour y_var pour le graphique
+  y_var <- "y_value"
+  
   # Create the plot using datagotchi_barplot
   result <- datagotchi_barplot(
-    data = data,
+    data = plot_data,
     x = x_var,
     y = y_var,
     fill = fill_var,
-    summary_function = summary_function,
-    weight = weight_var,
+    summary_function = NULL,  # Déjà résumé
+    weight = NULL,            # Déjà pris en compte
     x_rename = x_rename,
     fill_rename = fill_rename,
     logo = logo,
